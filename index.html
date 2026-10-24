@@ -1333,55 +1333,54 @@ const JEITOS_DE_VOZ = [
 let jeitoQueFunciona = null;   // descoberto na primeira fala
 let vozGeminiQuebrada = false; // se todos falharem, para de tentar nesta sessão
 
-// divide em frases e pede o áudio de todas ao mesmo tempo:
-// a primeira começa a tocar enquanto as outras ainda estão sendo geradas
+// a resposta inteira vira UM áudio só (o Gemini limita pedidos de voz por minuto,
+// então pedir frase por frase fazia ele recusar e cair na voz do navegador)
 async function falar(texto) {
   if (!texto) return;
   setEstado("falando");
   abaixarNoticia(true);
   try {
-    // na primeira vez, descobre qual jeito funciona com a primeira frase
-    const frases = dividirFrases(texto);
-    if (!jeitoQueFunciona && !vozGeminiQuebrada) {
-      const primeiro = await descobrirJeito(frases[0]);
-      if (primeiro && !cancelado) await tocarAudio(primeiro);
-      else if (!cancelado) await falarNavegador(frases[0]);
-      frases.shift();
-    }
-    const audios = frases.map((f) => gerarAudio(f).catch(() => null));
-    for (let i = 0; i < frases.length; i++) {
-      if (cancelado) break;
-      const base64 = await audios[i];
-      if (cancelado) break;
-      if (base64) await tocarAudio(base64);
-      else await falarNavegador(frases[i]);
-    }
+    const base64 = await gerarVozGemini(texto);
+    if (cancelado) return;
+    if (base64) await tocarAudio(base64);
+    else await falarNavegador(texto);   // último recurso
   } finally {
     abaixarNoticia(false);
   }
 }
 
-async function descobrirJeito(frase) {
+async function gerarVozGemini(texto) {
+  if (vozGeminiQuebrada) return null;
+
+  // 1) o jeito que já funcionou, com uma segunda tentativa se der limite
+  if (jeitoQueFunciona) {
+    for (let tentativa = 0; tentativa < 2; tentativa++) {
+      try { return await jeitoQueFunciona.fn(texto); }
+      catch (e) {
+        log("voz falhou, tentando de novo:", e.message);
+        if (cancelado) return null;
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
+  }
+
+  // 2) testa os outros jeitos
   const erros = [];
   for (const jeito of JEITOS_DE_VOZ) {
+    if (jeito === jeitoQueFunciona) continue;
     try {
-      const base64 = await jeito.fn(frase);
+      const base64 = await jeito.fn(texto);
       jeitoQueFunciona = jeito;
       log("voz do Gemini funcionando via", jeito.nome);
       return base64;
     } catch (e) {
       erros.push(`${jeito.nome}: ${e.message}`);
-      log("voz falhou", jeito.nome, e.message);
     }
   }
-  vozGeminiQuebrada = true;
-  aviso("Voz do Gemini falhou → " + erros[0]);
-  return null;
-}
 
-async function gerarAudio(texto) {
-  if (!jeitoQueFunciona) throw new Error("sem voz do Gemini");
-  return jeitoQueFunciona.fn(texto);
+  aviso("Voz do Gemini falhou → " + (erros[0] || "limite de uso atingido, espere um minuto"));
+  if (!jeitoQueFunciona) vozGeminiQuebrada = true;
+  return null;
 }
 
 function dividirFrases(texto) {
