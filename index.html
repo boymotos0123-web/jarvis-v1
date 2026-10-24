@@ -1129,6 +1129,7 @@ function prepararMicrofone() {
 
   ouvir();
   setInterval(atualizarAtento, 1000);
+  setTimeout(iniciarLive, 0);   // conversa em tempo real (se falhar, usa o modo clássico)
 }
 
 function ouvir() {
@@ -1148,6 +1149,7 @@ function renovarConversa() {
 // tudo que o microfone ouve passa por aqui
 function aoOuvir(texto) {
   log("ouvi:", texto);
+  if (live.ativo) return aoOuvirLive(texto);
   const temNome = contemNome(texto);
   const pediuParar = /\b(chega|pare|silencio|cala a boca|cala boca|para de falar|para ai)\b/.test(normalizar(texto));
 
@@ -1206,6 +1208,7 @@ document.addEventListener("keydown", (e) => {
 
 function ativarManual() {
   desbloquearAudio();
+  if (live.ativo) return ativarManualLive();
   if (ocupado) interromper();
   else { renovarConversa(); bip(); }
 }
@@ -1868,6 +1871,301 @@ function desenharGrafico(valores) {
 
   document.querySelector(".valor-grafico").textContent =
     valores[valores.length - 1].toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+// =============================================
+//  CONVERSA EM TEMPO REAL (Gemini Live API)
+//  o microfone vai direto pro Gemini e a voz dele volta em streaming
+// =============================================
+const LIVE_URL = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
+const LIVE_MODELO = "models/gemini-3.8-live";
+
+const live = {
+  ativo: false,        // true quando a Live API está funcionando
+  ws: null,
+  pronto: false,
+  transmitindo: false, // mandando o microfone pro Gemini agora
+  bufferMic: [],       // últimos ~3s de áudio (pra não perder o que você fala junto com o nome)
+  ctxSaida: null,
+  analisador: null,
+  proximoTempo: 0,
+  fontes: [],
+  falaUsuario: "",
+  falaAssistente: "",
+  tentativas: 0,
+};
+
+async function iniciarLive() {
+  try {
+    await iniciarMicLive();
+    conectarLive();
+  } catch (e) {
+    log("Live API indisponível, usando modo clássico:", e.message);
+  }
+}
+
+function promptSistema() {
+  const fatos = memoria.fatos.map((f) => "- " + f).join("\n");
+  const conversa = memoria.historico.slice(-8).map((h) => `${h.quem}: ${h.texto}`).join("\n");
+  return `Você é a IA parceira do ${CFG.NOME_USUARIO}, tipo um amigo gênio que mora no computador dele. Ele te chama de ${CFG.NOME_ASSISTENTE}.
+Fale SEMPRE em português do Brasil. Jeito: descontraído, direto, esperto, com humor leve. Nada de formalidade, nunca chame ele de "senhor".
+Respostas curtas e naturais, como numa conversa falada.
+Use as funções quando ele pedir: abrir/fechar câmera, mostrar/fechar notícias, trocar canal, voltar ao início.
+Quando ele pedir um resumo das notícias, pesquise no Google, fale o resumo e chame mostrar_resumo com o texto.
+Quando ele contar algo importante e duradouro sobre ele, chame a função lembrar.
+Agora é ${new Date().toLocaleString("pt-BR")}.
+
+O que você já sabe sobre ele:
+${fatos || "(nada ainda)"}
+
+Últimas conversas:
+${conversa || "(nenhuma)"}`;
+}
+
+const FUNCOES = [
+  { name: "abrir_camera", description: "Abre a câmera em tela cheia." },
+  { name: "fechar_camera", description: "Fecha a câmera." },
+  { name: "abrir_noticias", description: "Abre a tela de notícias com canal ao vivo, manchetes e cotações." },
+  { name: "fechar_noticias", description: "Fecha a tela de notícias." },
+  { name: "proximo_canal", description: "Troca para o próximo canal de notícias ao vivo." },
+  { name: "voltar_inicio", description: "Fecha tudo e volta para a tela inicial." },
+  { name: "mostrar_resumo", description: "Mostra o texto do resumo de notícias no painel lateral.",
+    parameters: { type: "OBJECT", properties: { texto: { type: "STRING" } }, required: ["texto"] } },
+  { name: "lembrar", description: "Guarda um fato importante e duradouro sobre o usuário.",
+    parameters: { type: "OBJECT", properties: { fato: { type: "STRING" } }, required: ["fato"] } },
+  { name: "esquecer_tudo", description: "Apaga toda a memória sobre o usuário." },
+];
+
+function conectarLive() {
+  const ws = new WebSocket(`${LIVE_URL}?key=${encodeURIComponent(CFG.CHAVE_GEMINI)}`);
+  live.ws = ws;
+  live.pronto = false;
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({
+      setup: {
+        model: LIVE_MODELO,
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: CFG.VOZ } } },
+        },
+        systemInstruction: { parts: [{ text: promptSistema() }] },
+        tools: [{ googleSearch: {} }, { functionDeclarations: FUNCOES }],
+        inputAudioTranscription: {},
+        outputAudioTranscription: {},
+      },
+    }));
+  };
+
+  ws.onmessage = async (ev) => {
+    const texto = typeof ev.data === "string" ? ev.data : await ev.data.text();
+    let msg;
+    try { msg = JSON.parse(texto); } catch (_) { return; }
+
+    if (msg.setupComplete) {
+      live.pronto = true;
+      live.ativo = true;
+      live.tentativas = 0;
+      log("conversa em tempo real ativa ⚡");
+      return;
+    }
+    if (msg.serverContent) tratarConteudo(msg.serverContent);
+    if (msg.toolCall) tratarFuncoes(msg.toolCall);
+  };
+
+  ws.onclose = (ev) => {
+    const estavaAtivo = live.ativo;
+    live.pronto = false;
+    log("conexão em tempo real fechou:", ev.code, ev.reason);
+
+    if (!estavaAtivo) {
+      // nunca chegou a funcionar: fica no modo clássico e mostra o motivo
+      live.ativo = false;
+      if (ev.reason) aviso("Tempo real indisponível (" + ev.reason.slice(0, 90) + "). Usando modo normal.");
+      return;
+    }
+    // caiu no meio do uso (sessões têm tempo máximo): reconecta sozinho
+    live.tentativas++;
+    if (live.tentativas <= 5) setTimeout(conectarLive, 800 * live.tentativas);
+    else { live.ativo = false; aviso("A conexão em tempo real caiu. Usando modo normal."); }
+  };
+}
+
+function tratarConteudo(c) {
+  if (c.interrupted) pararFalaLive();   // você começou a falar por cima: ele para na hora
+
+  for (const parte of c.modelTurn?.parts || []) {
+    if (parte.inlineData?.data) tocarPedacoLive(parte.inlineData.data);
+  }
+  if (c.inputTranscription?.text) { live.falaUsuario += c.inputTranscription.text; renovarConversa(); }
+  if (c.outputTranscription?.text) live.falaAssistente += c.outputTranscription.text;
+
+  if (c.turnComplete) {
+    if (live.falaUsuario.trim() || live.falaAssistente.trim()) {
+      memoria.historico.push(
+        { quem: CFG.NOME_USUARIO, texto: live.falaUsuario.trim() },
+        { quem: "Você", texto: live.falaAssistente.trim() });
+      salvarMemoria();
+    }
+    live.falaUsuario = "";
+    live.falaAssistente = "";
+    renovarConversa();
+  }
+}
+
+async function tratarFuncoes(chamada) {
+  const respostas = [];
+  for (const f of chamada.functionCalls || []) {
+    let resultado = "ok";
+    try {
+      switch (f.name) {
+        case "abrir_camera":    resultado = (await abrirCamera()) ? "câmera aberta" : "câmera bloqueada"; break;
+        case "fechar_camera":   fecharCamera(); break;
+        case "abrir_noticias":  abrirNoticias(); break;
+        case "fechar_noticias": fecharNoticias(); break;
+        case "proximo_canal":   if (!document.body.classList.contains("noticias-abertas")) abrirNoticias();
+                                resultado = "agora em " + proximoCanal(); break;
+        case "voltar_inicio":   fecharCamera(); fecharNoticias(); break;
+        case "mostrar_resumo":  if (!document.body.classList.contains("noticias-abertas")) abrirNoticias();
+                                escreverDevagar(document.querySelector(".texto-resumo"), f.args?.texto || ""); break;
+        case "lembrar":         if (f.args?.fato) { memoria.fatos.push(f.args.fato); salvarMemoria(); log("aprendi:", f.args.fato); } break;
+        case "esquecer_tudo":   memoria.fatos = []; memoria.historico = []; salvarMemoria(); break;
+        default:                resultado = "função desconhecida";
+      }
+    } catch (e) {
+      resultado = "erro: " + e.message;
+    }
+    respostas.push({ id: f.id, name: f.name, response: { result: resultado } });
+  }
+  enviarLive({ toolResponse: { functionResponses: respostas } });
+}
+
+function enviarLive(obj) {
+  if (live.ws?.readyState === WebSocket.OPEN && live.pronto) live.ws.send(JSON.stringify(obj));
+}
+
+// ---------- microfone em tempo real ----------
+async function iniciarMicLive() {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  });
+  const ctx = new AudioContext();
+  // pequeno processador que entrega o áudio do microfone em pedaços
+  const codigo = `
+    class Captura extends AudioWorkletProcessor {
+      process(entradas) {
+        const canal = entradas[0][0];
+        if (canal) this.port.postMessage(canal.slice(0));
+        return true;
+      }
+    }
+    registerProcessor("captura", Captura);`;
+  const url = URL.createObjectURL(new Blob([codigo], { type: "application/javascript" }));
+  await ctx.audioWorklet.addModule(url);
+  const no = new AudioWorkletNode(ctx, "captura");
+  ctx.createMediaStreamSource(stream).connect(no);
+
+  const razao = ctx.sampleRate / 16000;
+  let acumulado = [];
+  no.port.onmessage = (e) => {
+    // reduz pra 16 kHz
+    const entrada = e.data;
+    for (let i = 0; i < entrada.length; i += razao) acumulado.push(entrada[Math.floor(i)]);
+    if (acumulado.length < 1600) return;   // manda a cada ~100 ms
+
+    const pcm = new Int16Array(acumulado.length);
+    for (let i = 0; i < acumulado.length; i++) pcm[i] = Math.max(-1, Math.min(1, acumulado[i])) * 0x7fff;
+    acumulado = [];
+    const base64 = paraBase64(pcm.buffer);
+
+    if (live.transmitindo && emConversa()) {
+      enviarLive({ realtimeInput: { audio: { data: base64, mimeType: "audio/pcm;rate=16000" } } });
+    } else {
+      live.transmitindo = false;
+      live.bufferMic.push(base64);
+      if (live.bufferMic.length > 30) live.bufferMic.shift();   // guarda só os últimos ~3s
+    }
+  };
+  document.addEventListener("click", () => ctx.resume(), { once: true });
+}
+
+function paraBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+// o nome foi dito: começa a mandar o microfone (incluindo os últimos segundos)
+function comecarTransmissao() {
+  renovarConversa();
+  if (live.transmitindo) return;
+  live.bufferMic.forEach((b) => enviarLive({ realtimeInput: { audio: { data: b, mimeType: "audio/pcm;rate=16000" } } }));
+  live.bufferMic = [];
+  live.transmitindo = true;
+}
+
+function aoOuvirLive(texto) {
+  if (contemNome(texto)) comecarTransmissao();
+}
+
+function ativarManualLive() {
+  if (live.fontes.length) pararFalaLive();
+  else { comecarTransmissao(); bip(); }
+}
+
+// ---------- voz dele em tempo real ----------
+function tocarPedacoLive(base64) {
+  if (!live.ctxSaida) {
+    live.ctxSaida = new AudioContext({ sampleRate: 24000 });
+    live.analisador = live.ctxSaida.createAnalyser();
+    live.analisador.fftSize = 256;
+    live.analisador.connect(live.ctxSaida.destination);
+    animarVozLive();
+  }
+  const ctx = live.ctxSaida;
+  if (ctx.state === "suspended") ctx.resume();
+
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  const amostras = new Int16Array(bytes.buffer, 0, Math.floor(bytes.length / 2));
+  const buffer = ctx.createBuffer(1, amostras.length, 24000);
+  const canal = buffer.getChannelData(0);
+  for (let i = 0; i < amostras.length; i++) canal[i] = amostras[i] / 32768;
+
+  const fonte = ctx.createBufferSource();
+  fonte.buffer = buffer;
+  fonte.connect(live.analisador);
+  const inicio = Math.max(ctx.currentTime + 0.02, live.proximoTempo);
+  fonte.start(inicio);
+  live.proximoTempo = inicio + buffer.duration;
+  live.fontes.push(fonte);
+  fonte.onended = () => { live.fontes = live.fontes.filter((f) => f !== fonte); };
+}
+
+function pararFalaLive() {
+  live.fontes.forEach((f) => { try { f.stop(); } catch (_) {} });
+  live.fontes = [];
+  live.proximoTempo = 0;
+}
+
+// núcleo pulsando com a voz + estados visuais
+function animarVozLive() {
+  const onda = new Uint8Array(live.analisador.frequencyBinCount);
+  let estavaFalando = false;
+  (function loop() {
+    live.analisador.getByteFrequencyData(onda);
+    const media = onda.reduce((a, b) => a + b, 0) / onda.length;
+    nucleo.style.setProperty("--nivel", Math.min(media / 90, 1).toFixed(3));
+
+    const falando = live.fontes.length > 0;
+    if (falando !== estavaFalando) {
+      estavaFalando = falando;
+      setEstado(falando ? "falando" : null);
+      abaixarNoticia(falando);
+      if (falando) renovarConversa();
+    }
+    requestAnimationFrame(loop);
+  })();
 }
 
 </script>
