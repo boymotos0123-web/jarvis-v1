@@ -1,0 +1,1816 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JARVIS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <style>
+/* ===== CORES E VARIÁVEIS ===== */
+:root {
+  --fundo: #0b0e15;            /* preto com tom de azul */
+  --grade: rgba(150, 158, 175, 0.09); /* grade cinza */
+  --azul: #2f8cff;
+  --azul-claro: #6db5ff;
+  --azul-brilho: rgba(47, 140, 255, 0.6);
+  --neon: #4aa8ff;             /* azul das bordas */
+  --branco: #eef3fb;
+  --cinza: #7c8496;
+  --fonte: 'Rajdhani', system-ui, sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* ===== FUNDO COM GRADE ===== */
+body {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--fundo);
+  background-image:
+    linear-gradient(var(--grade) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grade) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-position: center center;
+  font-family: var(--fonte);
+  color: var(--branco);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ===== BORDA NEON (luz azul nas bordas da tela) ===== */
+.borda-neon {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+  box-shadow:
+    inset 0 0 0 2px var(--neon),
+    inset 0 0 12px rgba(74, 168, 255, 0.8),
+    inset 0 0 50px rgba(74, 168, 255, 0.35),
+    inset 0 0 120px rgba(74, 168, 255, 0.12);
+}
+
+/* ===== RÉGUAS NAS BORDAS ===== */
+.regua {
+  position: fixed;
+  opacity: 0.45;
+}
+
+.regua-topo {
+  top: 18px;
+  left: 48px;
+  right: 48px;
+  height: 5px;
+  background: repeating-linear-gradient(90deg, var(--cinza) 0 1px, transparent 1px 32px);
+}
+
+.regua-esquerda,
+.regua-direita {
+  top: 48px;
+  bottom: 96px;
+  width: 5px;
+  background: repeating-linear-gradient(180deg, var(--cinza) 0 1px, transparent 1px 32px);
+}
+
+.regua-esquerda { left: 18px; }
+.regua-direita  { right: 18px; }
+
+/* ===== DETALHE NO TOPO ===== */
+.detalhe-topo {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 340px;
+  height: 22px;
+  z-index: 11;
+}
+
+.detalhe-topo path {
+  fill: none;
+  stroke: var(--neon);
+  stroke-width: 1.5;
+  filter: drop-shadow(0 0 3px var(--neon));
+}
+
+/* ===== NÚCLEO CENTRAL ===== */
+.nucleo {
+  position: relative;
+  width: 340px;
+  height: 340px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* luz que o núcleo joga no fundo */
+.luz-nucleo {
+  position: absolute;
+  width: 900px;
+  height: 900px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(47, 140, 255, 0.18) 0%, rgba(47, 140, 255, 0.06) 30%, transparent 60%);
+  pointer-events: none;
+}
+
+/* anel tracejado bem fraco, gira devagar */
+.anel-ticks {
+  position: absolute;
+  width: 250px;
+  height: 250px;
+  border-radius: 50%;
+  border: 1px dashed rgba(124, 132, 150, 0.15);
+  animation: girar 80s linear infinite;
+}
+
+/* 4 marcas de duas barras girando em volta de tudo */
+.orbita {
+  position: absolute;
+  width: 236px;
+  height: 236px;
+  animation: girar 12s linear infinite;
+}
+
+.barra {
+  position: absolute;
+  width: 6px;
+  height: 10px;
+  border-left: 1.5px solid var(--cinza);
+  border-right: 1.5px solid var(--cinza);
+  opacity: 0.8;
+}
+
+/* cada uma fica num lado, com as barras apontando pro centro */
+.b-cima  { top: 0;    left: 50%; transform: translateX(-50%); }
+.b-baixo { bottom: 0; left: 50%; transform: translateX(-50%); }
+.b-esq   { left: 2px;  top: 50%; transform: translateY(-50%) rotate(90deg); }
+.b-dir   { right: 2px; top: 50%; transform: translateY(-50%) rotate(90deg); }
+
+/* círculo de pontinhos em volta do núcleo */
+.anel-pontos {
+  position: absolute;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background:
+    repeating-conic-gradient(rgba(170, 205, 255, 0.6) 0deg 1.2deg, transparent 1.2deg 17deg),
+    repeating-conic-gradient(from 7deg, rgba(170, 205, 255, 0.35) 0deg 1deg, transparent 1deg 29deg);
+  -webkit-mask: radial-gradient(circle, transparent 96px, #000 97px, #000 99px, transparent 100px);
+          mask: radial-gradient(circle, transparent 96px, #000 97px, #000 99px, transparent 100px);
+  animation: girar 30s linear infinite reverse;
+}
+
+/* varredura tipo radar entre o centro e os pontinhos */
+.varredura {
+  position: absolute;
+  width: 196px;
+  height: 196px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, rgba(90, 170, 255, 0.28), rgba(90, 170, 255, 0.08) 40deg, transparent 70deg);
+  -webkit-mask: radial-gradient(circle closest-side, transparent 58%, #000 60%, #000 100%);
+          mask: radial-gradient(circle closest-side, transparent 58%, #000 60%, #000 100%);
+  animation: girar 5s linear infinite;
+}
+
+/* ===== CAMADAS FINAS (SVG) ===== */
+.camadas {
+  position: absolute;
+  width: 340px;
+  height: 340px;
+  overflow: visible;
+}
+
+.camadas circle {
+  fill: none;
+}
+
+.camadas g {
+  transform-origin: 170px 170px;
+}
+
+.c-linha {
+  stroke: rgba(120, 175, 255, 0.18);
+  stroke-width: 1;
+}
+
+.c-ticks {
+  stroke: rgba(170, 210, 255, 0.45);
+  stroke-width: 4;
+  stroke-dasharray: 0.7 2.5;
+}
+
+.c-ticks-grossos {
+  stroke: rgba(210, 230, 255, 0.85);
+  stroke-width: 6;
+  stroke-dasharray: 1.2 30.8;
+}
+
+.g-ticks { animation: girar 40s linear infinite; }
+
+.c-segmentos {
+  stroke: rgba(80, 160, 255, 0.75);
+  stroke-width: 2;
+  stroke-dasharray: 108 78.4;
+  filter: drop-shadow(0 0 3px rgba(80, 160, 255, 0.9));
+}
+
+.g-segmentos { animation: girar 18s linear infinite reverse; }
+
+.c-acentos {
+  stroke: #8fd0ff;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 30 303;
+  filter: drop-shadow(0 0 4px #4aa8ff);
+}
+
+.g-acentos { animation: girar 7s linear infinite; }
+
+.c-interno {
+  stroke: rgba(150, 200, 255, 0.35);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+
+.g-interno { animation: girar 25s linear infinite reverse; }
+
+/* anel azul: feito como LUZ (degradê), não como borda chapada */
+.anel-brilho {
+  position: absolute;
+  width: 156px;
+  height: 156px;
+  border-radius: 50%;
+  background: radial-gradient(circle closest-side,
+    transparent 76%,
+    rgba(30, 110, 255, 0.35) 79%,
+    #2a86ff 83%,
+    #a9d6ff 87.5%,     /* linha quente/clara no meio do anel */
+    #2f8cff 92%,
+    rgba(30, 110, 255, 0.35) 96%,
+    transparent 100%);
+  box-shadow:
+    0 0 30px rgba(47, 140, 255, 0.45),
+    0 0 80px rgba(47, 140, 255, 0.22),
+    inset 0 0 30px rgba(47, 140, 255, 0.35);
+  animation: respirar 3.5s ease-in-out infinite;
+}
+
+/* reflexo: deixa um lado do anel mais forte que o outro (mais realista) */
+.anel-brilho::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(from 300deg, rgba(255, 255, 255, 0.35), transparent 30%, transparent 60%, rgba(160, 210, 255, 0.25) 80%, rgba(255, 255, 255, 0.35));
+  -webkit-mask: radial-gradient(circle closest-side, transparent 82%, #000 85%, #000 90%, transparent 93%);
+          mask: radial-gradient(circle closest-side, transparent 82%, #000 85%, #000 90%, transparent 93%);
+  mix-blend-mode: screen;
+}
+
+/* arco branco fino com rastro que some, rodando colado por fora */
+.anel-giro {
+  position: absolute;
+  width: 168px;
+  height: 168px;
+  border-radius: 50%;
+  background: conic-gradient(from 180deg, transparent 0deg, rgba(255, 255, 255, 0.15) 10deg, #ffffff 45deg, transparent 46deg);
+  -webkit-mask: radial-gradient(circle closest-side, transparent 97.5%, #000 98.5%);
+          mask: radial-gradient(circle closest-side, transparent 97.5%, #000 98.5%);
+  filter: drop-shadow(0 0 2px #ffffff) drop-shadow(0 0 5px rgba(170, 215, 255, 0.8));
+  animation: girar 3s linear infinite;
+}
+
+/* círculo do centro: vidro escuro com leve reflexo azul */
+.centro {
+  position: absolute;
+  width: 112px;
+  height: 112px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 35%, #161d2b 0%, #0a0d14 70%);
+  border: 1px solid rgba(225, 235, 250, 0.55);
+  box-shadow:
+    inset 0 0 18px rgba(47, 140, 255, 0.18),
+    inset 0 2px 6px rgba(255, 255, 255, 0.05),
+    0 0 0 4px rgba(10, 13, 20, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nome {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 4px;
+  padding-left: 4px; /* compensa o espaçamento da última letra */
+  color: #f3f7ff;
+  text-shadow: 0 0 6px rgba(140, 195, 255, 0.55);
+}
+
+/* ===== BARRA INFERIOR ===== */
+.dock {
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 2px;
+}
+
+.dock-btn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--cinza);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s, background 0.2s;
+}
+
+.dock-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dock-btn:hover {
+  color: var(--branco);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* botão ativo: rodinha branca */
+.dock-btn.ativo {
+  color: var(--branco);
+}
+
+.dock-btn.ativo svg circle:first-child {
+  fill: var(--branco);
+  stroke: none;
+}
+
+.dock-btn.ativo svg circle:last-child {
+  fill: var(--fundo);
+  stroke: none;
+}
+
+/* linha fina no rodapé */
+.linha-base {
+  position: fixed;
+  bottom: 22px;
+  left: 48px;
+  right: 48px;
+  height: 1px;
+  background: rgba(124, 132, 150, 0.3);
+}
+
+.linha-base span {
+  position: absolute;
+  left: 50%;
+  top: -1px;
+  width: 20px;
+  height: 3px;
+  transform: translateX(-50%);
+  background: var(--branco);
+  opacity: 0.7;
+  border-radius: 2px;
+}
+
+/* ===== TELA DA CÂMERA ===== */
+.tela-camera {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  background: var(--fundo);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.6s ease;
+}
+
+.camera-aberta .tela-camera {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.video-camera {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);        /* espelhado, tipo selfie */
+  filter: saturate(0.9) contrast(1.05);
+}
+
+/* pedaço de grade em cada canto (a identidade da interface) */
+.canto {
+  position: absolute;
+  width: 34vw;
+  height: 34vh;
+  min-width: 260px;
+  min-height: 200px;
+  background-color: rgba(11, 14, 21, 0.55);
+  background-image:
+    linear-gradient(rgba(170, 180, 200, 0.28) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(170, 180, 200, 0.28) 1px, transparent 1px);
+  background-size: 32px 32px;
+  transform: scale(0);
+  transition: transform 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) 0.15s;
+}
+
+.canto-se { top: 0;    left: 0;  transform-origin: top left;
+  -webkit-mask: radial-gradient(ellipse 100% 100% at 0 0, #000 0%, rgba(0,0,0,0.55) 45%, transparent 100%);
+          mask: radial-gradient(ellipse 100% 100% at 0 0, #000 0%, rgba(0,0,0,0.55) 45%, transparent 100%); }
+.canto-sd { top: 0;    right: 0; transform-origin: top right; background-position: right top;
+  -webkit-mask: radial-gradient(ellipse 100% 100% at 100% 0, #000 0%, rgba(0,0,0,0.55) 45%, transparent 100%);
+          mask: radial-gradient(ellipse 100% 100% at 100% 0, #000 0%, rgba(0,0,0,0.55) 45%, transparent 100%); }
+.canto-ie { bottom: 0; left: 0;  transform-origin: bottom left; background-position: left bottom;
+  -webkit-mask: radial-gradient(ellipse 100% 100% at 0 100%, #000 0%, rgba(0,0,0,0.55) 45%, transparent 100%);
+          mask: radial-gradient(ellipse 100% 100% at 0 100%, #000 0%, rgba(0,0,0,0.55) 45%, transparent 100%); }
+.canto-id { bottom: 0; right: 0; transform-origin: bottom right; background-position: right bottom;
+  -webkit-mask: radial-gradient(ellipse 100% 100% at 100% 100%, #000 0%, rgba(0,0,0,0.55) 45%, transparent 100%);
+          mask: radial-gradient(ellipse 100% 100% at 100% 100%, #000 0%, rgba(0,0,0,0.55) 45%, transparent 100%); }
+
+.camera-aberta .canto { transform: scale(1); }
+
+/* o núcleo some quando a câmera abre */
+.nucleo { transition: opacity 0.5s, transform 0.5s; }
+.camera-aberta .nucleo { opacity: 0; transform: scale(0.85); }
+
+/* o que fica por cima da câmera */
+.regua, .detalhe-topo { z-index: 11; }
+.dock, .linha-base   { z-index: 12; }
+.legenda             { z-index: 13; }
+
+/* ===== TELA DE NOTÍCIAS ===== */
+.tela-noticias {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  padding: 42px 48px 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.98);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.noticias-abertas .tela-noticias {
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1);
+}
+
+/* faixa de cotações no topo */
+.ticker {
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: var(--cinza);
+  padding: 0 4px;
+}
+
+.ticker-item b    { color: var(--branco); font-weight: 600; margin-left: 6px; }
+.ticker-item .sobe  { color: #4ade80; margin-left: 6px; }
+.ticker-item .desce { color: #f87171; margin-left: 6px; }
+
+.noticias-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.col-esq, .col-dir {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+}
+
+/* painéis de vidro */
+.painel {
+  background: rgba(14, 18, 27, 0.78);
+  border: 1px solid rgba(74, 168, 255, 0.25);
+  border-radius: 6px;
+  box-shadow: 0 0 24px rgba(47, 140, 255, 0.08), inset 0 0 20px rgba(47, 140, 255, 0.04);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.painel-titulo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--cinza);
+}
+
+.ao-vivo {
+  color: #ff5a5a;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ao-vivo::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff3b3b;
+  box-shadow: 0 0 8px #ff3b3b;
+  animation: piscar 1.4s ease-in-out infinite;
+}
+
+.canal-nome { color: var(--branco); }
+
+/* vídeo ao vivo */
+.player {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 52vh;
+  background: #05070b;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.player iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
+/* manchetes */
+.painel-manchetes { flex: 1; }
+
+.lista-manchetes {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  font-size: 14px;
+  line-height: 1.35;
+  color: rgba(225, 235, 250, 0.88);
+}
+
+.lista-manchetes li {
+  display: flex;
+  gap: 10px;
+}
+
+.lista-manchetes li::before {
+  content: '';
+  flex: none;
+  width: 5px;
+  height: 5px;
+  margin-top: 7px;
+  border-radius: 50%;
+  background: var(--neon);
+  box-shadow: 0 0 6px var(--neon);
+}
+
+.lista-manchetes li.vazio::before { display: none; }
+.lista-manchetes .fonte { color: var(--cinza); font-size: 12px; margin-left: 6px; }
+
+/* gráfico */
+.painel-grafico { flex: none; }
+.valor-grafico  { margin-left: auto; color: var(--branco); letter-spacing: 1px; }
+
+.svg-grafico {
+  width: 100%;
+  height: 150px;
+  overflow: visible;
+}
+
+.svg-grafico .linha {
+  fill: none;
+  stroke: var(--neon);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 4px var(--neon));
+}
+
+.svg-grafico .area { fill: url(#degrade-grafico); }
+
+/* resumo do assistente */
+.painel-resumo {
+  flex: 1;
+  padding-bottom: 120px;    /* espaço pro núcleo pequeno */
+}
+
+.tag {
+  background: rgba(74, 168, 255, 0.18);
+  color: var(--azul-claro);
+  padding: 3px 10px;
+  border-radius: 3px;
+}
+
+.texto-resumo {
+  font-size: 15px;
+  line-height: 1.5;
+  color: rgba(225, 235, 250, 0.9);
+  overflow-y: auto;
+}
+
+/* núcleo encolhe pro canto direito quando as notícias abrem */
+.nucleo {
+  z-index: 7;
+  transition: opacity 0.5s, transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.noticias-abertas .nucleo {
+  transform: translate(calc(50vw - 150px), calc(50vh - 170px)) scale(0.42);
+}
+
+.camera-aberta .nucleo { pointer-events: none; }
+
+@media (max-width: 900px) {
+  .noticias-grid { grid-template-columns: 1fr; overflow-y: auto; }
+}
+
+@keyframes piscar {
+  50% { opacity: 0.3; }
+}
+
+/* ===== TELA DA CHAVE (primeira vez) ===== */
+.tela-chave {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(5, 7, 11, 0.75);
+  backdrop-filter: blur(6px);
+}
+
+.tela-chave.visivel { display: flex; }
+
+.caixa-chave {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 28px;
+  background: rgba(14, 18, 27, 0.95);
+  border: 1px solid rgba(74, 168, 255, 0.4);
+  border-radius: 8px;
+  box-shadow: 0 0 40px rgba(47, 140, 255, 0.2);
+  font-family: var(--fonte);
+}
+
+.caixa-chave h2 {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+
+.caixa-chave p {
+  font-size: 15px;
+  line-height: 1.4;
+  color: rgba(225, 235, 250, 0.8);
+}
+
+.caixa-chave label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--cinza);
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+
+.caixa-chave input {
+  height: 44px;
+  padding: 0 12px;
+  background: #0a0d14;
+  border: 1px solid rgba(124, 132, 150, 0.4);
+  border-radius: 5px;
+  color: var(--branco);
+  font-size: 16px;
+  font-family: inherit;
+}
+
+.caixa-chave input:focus {
+  outline: none;
+  border-color: var(--neon);
+  box-shadow: 0 0 0 3px rgba(74, 168, 255, 0.2);
+}
+
+.caixa-chave button {
+  height: 46px;
+  margin-top: 6px;
+  border: none;
+  border-radius: 5px;
+  background: var(--azul);
+  color: #fff;
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  cursor: pointer;
+  box-shadow: 0 0 20px rgba(47, 140, 255, 0.4);
+}
+
+.caixa-chave button:hover { background: #4a9dff; }
+
+/* ===== LEGENDA ===== */
+.legenda {
+  position: fixed;
+  left: 50%;
+  bottom: 110px;
+  transform: translateX(-50%) translateY(6px);
+  max-width: min(640px, 80vw);
+  text-align: center;
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  color: rgba(225, 235, 250, 0.85);
+  text-shadow: 0 0 10px rgba(74, 168, 255, 0.4);
+  opacity: 0;
+  transition: opacity 0.5s, transform 0.5s;
+  pointer-events: none;
+}
+
+.legenda.visivel {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ===== ESTADOS DO ASSISTENTE ===== */
+.nucleo {
+  --nivel: 0;          /* volume da voz (0 a 1), vem do script.js */
+  cursor: pointer;
+}
+
+.anel-brilho,
+.anel-giro,
+.g-segmentos,
+.g-acentos,
+.varredura {
+  transition: transform 0.08s linear;
+}
+
+/* ouvindo: brilho mais forte e anel um pouco maior */
+.estado-ouvindo .anel-brilho {
+  animation: ouvir 1.2s ease-in-out infinite;
+}
+
+/* atento (modo conversa): anel mais aceso, sem precisar falar o nome */
+.atento .anel-brilho  { filter: brightness(1.35); }
+.atento .c-acentos    { stroke: #c4e6ff; }
+
+.player-aviso {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cinza);
+  font-size: 15px;
+  letter-spacing: 1px;
+}
+
+/* pensando: tudo gira mais rápido */
+.estado-pensando .varredura    { animation-duration: 1.2s; }
+.estado-pensando .anel-giro    { animation-duration: 0.9s; }
+.estado-pensando .g-segmentos  { animation-duration: 4s; }
+.estado-pensando .g-acentos    { animation-duration: 2s; }
+
+/* falando: o anel pulsa com o volume da voz */
+.estado-falando .anel-brilho {
+  animation: none;
+  transform: scale(calc(1 + var(--nivel) * 0.09));
+  filter: brightness(calc(1 + var(--nivel) * 0.9));
+}
+
+.estado-falando .luz-nucleo {
+  opacity: calc(0.7 + var(--nivel) * 0.8);
+}
+
+.estado-falando .anel-giro { animation-duration: 1.6s; }
+
+/* ===== ANIMAÇÕES ===== */
+@keyframes ouvir {
+  0%, 100% { filter: brightness(1.2); transform: scale(1.02); }
+  50%      { filter: brightness(1.5); transform: scale(1.05); }
+}
+
+@keyframes girar {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes respirar {
+  0%, 100% { filter: brightness(1); }
+  50%      { filter: brightness(1.25); }
+}
+
+</style>
+</head>
+<body>
+
+  <!-- Brilho neon nas bordas da tela -->
+  <div class="borda-neon"></div>
+
+  <!-- Réguas nas bordas da tela -->
+  <div class="regua regua-topo"></div>
+  <div class="regua regua-esquerda"></div>
+  <div class="regua regua-direita"></div>
+
+  <!-- Detalhe no topo central -->
+  <svg class="detalhe-topo" viewBox="0 0 300 20" aria-hidden="true">
+    <path d="M0 2 H90 L110 16 H190 L210 2 H300" />
+  </svg>
+
+  <!-- Núcleo central -->
+  <main class="nucleo">
+    <!-- luz que o núcleo joga no fundo -->
+    <div class="luz-nucleo"></div>
+
+    <!-- anel tracejado bem fraco -->
+    <div class="anel-ticks"></div>
+
+    <!-- 4 marcas de duas barras que giram em volta de tudo -->
+    <div class="orbita">
+      <span class="barra b-cima"></span>
+      <span class="barra b-dir"></span>
+      <span class="barra b-baixo"></span>
+      <span class="barra b-esq"></span>
+    </div>
+
+    <!-- círculo de pontinhos -->
+    <div class="anel-pontos"></div>
+
+    <!-- varredura tipo radar -->
+    <div class="varredura"></div>
+
+    <!-- camadas finas do núcleo (cada grupo gira numa velocidade) -->
+    <svg class="camadas" viewBox="0 0 340 340" aria-hidden="true">
+      <!-- anel fino de fundo -->
+      <circle class="c-linha" cx="170" cy="170" r="94" />
+
+      <!-- risquinhos finos em volta do centro -->
+      <g class="g-ticks">
+        <circle class="c-ticks" cx="170" cy="170" r="61" />
+        <circle class="c-ticks-grossos" cx="170" cy="170" r="61" />
+      </g>
+
+      <!-- 3 segmentos azuis girando ao contrário -->
+      <g class="g-segmentos">
+        <circle class="c-segmentos" cx="170" cy="170" r="89" />
+      </g>
+
+      <!-- 2 arcos curtos ciano, rápidos -->
+      <g class="g-acentos">
+        <circle class="c-acentos" cx="170" cy="170" r="106" />
+      </g>
+
+      <!-- anel interno pontilhado que gira devagar -->
+      <g class="g-interno">
+        <circle class="c-interno" cx="170" cy="170" r="113" />
+      </g>
+    </svg>
+
+    <!-- anel azul + arco branco girando -->
+    <div class="anel-brilho"></div>
+    <div class="anel-giro"></div>
+
+    <!-- centro com o nome -->
+    <div class="centro">
+      <h1 class="nome">JARVIS</h1>
+    </div>
+  </main>
+
+  <!-- Tela da câmera -->
+  <section class="tela-camera" aria-label="Câmera">
+    <video class="video-camera" autoplay playsinline muted></video>
+    <!-- pedacinho de grade em cada canto -->
+    <div class="canto canto-se"></div>
+    <div class="canto canto-sd"></div>
+    <div class="canto canto-ie"></div>
+    <div class="canto canto-id"></div>
+  </section>
+
+  <!-- Tela de notícias (o "PCzinho") -->
+  <section class="tela-noticias" aria-label="Notícias">
+    <div class="ticker"><span class="ticker-item">Carregando cotações...</span></div>
+
+    <div class="noticias-grid">
+      <div class="col-esq">
+        <div class="painel painel-player">
+          <div class="painel-titulo">
+            <span class="ao-vivo">AO VIVO</span>
+            <span class="canal-nome">—</span>
+          </div>
+          <div class="player"></div>
+        </div>
+
+        <div class="painel painel-manchetes">
+          <div class="painel-titulo">MANCHETES DE HOJE</div>
+          <ul class="lista-manchetes">
+            <li class="vazio">Buscando notícias...</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="col-dir">
+        <div class="painel painel-grafico">
+          <div class="painel-titulo">USD / BRL · 30 DIAS <span class="valor-grafico"></span></div>
+          <svg class="svg-grafico" viewBox="0 0 400 150" preserveAspectRatio="none" aria-hidden="true"></svg>
+        </div>
+
+        <div class="painel painel-resumo">
+          <div class="painel-titulo"><span class="tag">RESUMO</span></div>
+          <p class="texto-resumo">Diga "JARVIS, faz um resumo".</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Barra de navegação inferior -->
+  <nav class="dock" aria-label="Navegação">
+    <button class="dock-btn ativo" data-tela="inicio" aria-label="Início">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /></svg>
+    </button>
+    <button class="dock-btn" data-tela="camera" aria-label="Câmera">
+      <svg viewBox="0 0 24 24"><rect x="3" y="7" width="12" height="10" rx="2" /><path d="M15 11l6-3v8l-6-3z" /></svg>
+    </button>
+    <button class="dock-btn" data-tela="tela" aria-label="Tela">
+      <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M9 20h6M12 16v4" /></svg>
+    </button>
+    <button class="dock-btn" data-tela="musica" aria-label="Música">
+      <svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12" /><circle cx="7" cy="18" r="2" /><circle cx="17" cy="16" r="2" /></svg>
+    </button>
+  </nav>
+
+  <div class="linha-base"><span></span></div>
+
+  <!-- legenda discreta (o que você falou / o que ele respondeu) -->
+  <p class="legenda" aria-live="polite"></p>
+
+  <!-- aparece só na primeira vez, pra colar a chave do Gemini -->
+  <div class="tela-chave" role="dialog" aria-labelledby="titulo-chave">
+    <form class="caixa-chave">
+      <h2 id="titulo-chave">Primeira configuração</h2>
+      <p>Cole sua chave do Gemini. Ela fica guardada só neste navegador e não aparece de novo.</p>
+      <label for="campo-chave">Chave da API</label>
+      <input id="campo-chave" type="password" autocomplete="off" spellcheck="false" placeholder="AIza..." required>
+      <button type="submit">Ativar</button>
+    </form>
+  </div>
+
+  <script>
+// =============================================
+//  MOTOR DO ASSISTENTE (navegador)
+//  ouvir -> pensar (Gemini) -> falar, com memória e interrupção
+// =============================================
+
+const API = "https://generativelanguage.googleapis.com/v1beta/interactions";
+
+// o modelo mais rápido, com o "pensamento" no mínimo
+const MODELO_RAPIDO = "gemini-3.5-flash-lite";
+const MODELO_RESERVA = "gemini-3.6-flash";
+const MODELO_VOZ = "gemini-3.8-flash-lite-tts";
+const LIMITE_TEXTO_MS = 12000;
+const LIMITE_VOZ_MS = 15000;
+const JANELA_CONVERSA_MS = 25000;   // depois de chamar o nome, fica 25s ouvindo sem precisar repetir
+
+const nucleo  = document.querySelector(".nucleo");
+const nomeEl  = document.querySelector(".nome");
+const legenda = document.querySelector(".legenda");
+
+let ocupado = false;          // pensando ou falando
+let reconhecimento = null;
+let ouvindoAgora = false;
+let audioCtx = null;
+let fonteAtual = null;        // áudio tocando agora
+let cancelado = false;        // true quando você interrompe
+let conversaAteh = 0;         // até quando está no "modo conversa"
+
+// ---------- memória (fica salva no navegador, mesmo fechando) ----------
+const memoria = {
+  historico: carregar("historico", []),   // últimas falas
+  fatos: carregar("fatos", []),           // coisas que ele aprendeu sobre você
+};
+
+function carregar(chave, padrao) {
+  try { return JSON.parse(localStorage.getItem("assistente_" + chave)) ?? padrao; }
+  catch (_) { return padrao; }
+}
+
+function salvarMemoria() {
+  try {
+    localStorage.setItem("assistente_historico", JSON.stringify(memoria.historico.slice(-20)));
+    localStorage.setItem("assistente_fatos", JSON.stringify(memoria.fatos.slice(-40)));
+  } catch (_) {}
+}
+
+// ---------- configuração ----------
+// valores padrão (se existir um config.js, ele substitui estes)
+const CFG = Object.assign(
+  { NOME_ASSISTENTE: "JARVIS", NOME_USUARIO: "Zeylor", VOZ: "Charon", CHAVE_GEMINI: "" },
+  typeof CONFIG !== "undefined" ? CONFIG : {}
+);
+
+// a chave fica guardada no navegador: você cola uma vez só
+try {
+  if (!CFG.CHAVE_GEMINI || CFG.CHAVE_GEMINI.includes("COLE_SUA")) CFG.CHAVE_GEMINI = localStorage.getItem("assistente_chave") || "";
+} catch (_) {}
+
+// ---------- início ----------
+nomeEl.textContent = CFG.NOME_ASSISTENTE.toUpperCase();
+document.title = CFG.NOME_ASSISTENTE;
+
+if (CFG.CHAVE_GEMINI) {
+  prepararMicrofone();
+} else {
+  pedirChave();
+}
+
+function pedirChave() {
+  const tela = document.querySelector(".tela-chave");
+  const form = tela.querySelector("form");
+  const campo = tela.querySelector("input");
+  tela.classList.add("visivel");
+  campo.focus();
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const chave = campo.value.trim();
+    if (chave.length < 20) { campo.setCustomValidity("Essa chave parece incompleta."); campo.reportValidity(); return; }
+    CFG.CHAVE_GEMINI = chave;
+    try { localStorage.setItem("assistente_chave", chave); } catch (_) {}
+    campo.value = "";
+    tela.classList.remove("visivel");
+    desbloquearAudio();
+    prepararMicrofone();
+  });
+  campo.addEventListener("input", () => campo.setCustomValidity(""));
+}
+
+// ---------- tela ----------
+function setEstado(estado) {
+  document.body.classList.remove("estado-ouvindo", "estado-pensando", "estado-falando");
+  if (estado) document.body.classList.add("estado-" + estado);
+}
+
+function atualizarAtento() {
+  document.body.classList.toggle("atento", emConversa());
+}
+
+function aviso(texto) {
+  legenda.textContent = texto;
+  legenda.classList.add("visivel");
+  clearTimeout(aviso.t);
+  aviso.t = setTimeout(() => legenda.classList.remove("visivel"), 8000);
+}
+
+function log(...coisas) {
+  console.log("[" + (CFG.NOME_ASSISTENTE || "assistente") + "]", ...coisas);
+}
+
+// ---------- microfone ----------
+function prepararMicrofone() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return aviso("Este navegador não tem reconhecimento de voz. Use o Google Chrome.");
+
+  reconhecimento = new SR();
+  reconhecimento.lang = "pt-BR";
+  reconhecimento.continuous = true;
+  reconhecimento.interimResults = false;
+
+  reconhecimento.onresult = (e) => {
+    const texto = e.results[e.results.length - 1][0].transcript.trim();
+    if (texto) aoOuvir(texto);
+  };
+
+  reconhecimento.onerror = (e) => {
+    log("erro do microfone:", e.error);
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      aviso("Microfone bloqueado. Libere no ícone ao lado do endereço.");
+      reconhecimento = null;
+    }
+  };
+
+  // o Chrome desliga sozinho de vez em quando: liga de novo
+  reconhecimento.onend = () => {
+    ouvindoAgora = false;
+    if (reconhecimento) setTimeout(ouvir, 200);
+  };
+
+  ouvir();
+  setInterval(atualizarAtento, 1000);
+}
+
+function ouvir() {
+  if (!reconhecimento || ouvindoAgora) return;
+  try { reconhecimento.start(); ouvindoAgora = true; } catch (_) {}
+}
+
+function emConversa() {
+  return Date.now() < conversaAteh;
+}
+
+function renovarConversa() {
+  conversaAteh = Date.now() + JANELA_CONVERSA_MS;
+  atualizarAtento();
+}
+
+// tudo que o microfone ouve passa por aqui
+function aoOuvir(texto) {
+  log("ouvi:", texto);
+  const temNome = contemNome(texto);
+  const pediuParar = /\b(chega|pare|silencio|cala a boca|cala boca|para de falar|para ai)\b/.test(normalizar(texto));
+
+  // falando ou pensando: só aceita interrupção (nome ou "chega/pare")
+  if (ocupado) {
+    if (temNome || pediuParar) {
+      interromper();
+      const resto = tirarNome(texto);
+      if (!pediuParar && resto.split(" ").length >= 2) setTimeout(() => processar(resto), 150);
+      else renovarConversa();
+    }
+    return;
+  }
+
+  if (!temNome && !emConversa()) return;   // ignora conversa de fundo
+  renovarConversa();
+
+  const resto = tirarNome(texto);
+  if (!resto) { bip(); return; }            // só falou o nome: "bip" e fica esperando
+  processar(resto);
+}
+
+function normalizar(s) {
+  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// aceita o nome mesmo quando o Chrome entende errado ("Jarbas", "Jarves"...)
+function ehNome(palavra) {
+  const nome = normalizar(CFG.NOME_ASSISTENTE);
+  const variacoes = { jarvis: ["jarbas", "jarves", "jarvi", "javis", "jervis", "garvis", "jarviz", "charvis", "jarvas"] };
+  return palavra === nome || (variacoes[nome] || []).includes(palavra) || (palavra.length >= 4 && distancia(palavra, nome) <= 2);
+}
+
+function contemNome(texto) {
+  return normalizar(texto).split(" ").some(ehNome);
+}
+
+function tirarNome(texto) {
+  return texto.split(/\s+/).filter((p) => !ehNome(normalizar(p))).join(" ").replace(/^[\s,.!?]+/, "").trim();
+}
+
+function distancia(a, b) {
+  const m = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) m[0][j] = j;
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++)
+      m[i][j] = Math.min(m[i - 1][j] + 1, m[i][j - 1] + 1, m[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return m[a.length][b.length];
+}
+
+// clique no núcleo / ESPAÇO: interrompe se estiver falando, senão entra no modo conversa
+nucleo.addEventListener("click", ativarManual);
+document.addEventListener("keydown", (e) => {
+  if (e.code === "Space" && e.target === document.body) { e.preventDefault(); ativarManual(); }
+});
+
+function ativarManual() {
+  desbloquearAudio();
+  if (ocupado) interromper();
+  else { renovarConversa(); bip(); }
+}
+
+function interromper() {
+  cancelado = true;
+  try { fonteAtual?.stop(); } catch (_) {}
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  log("interrompido");
+}
+
+// ---------- pensar + falar ----------
+async function processar(texto) {
+  ocupado = true;
+  cancelado = false;
+  setEstado("pensando");
+  const t0 = performance.now();
+
+  try {
+    // comandos (câmera, notícias...) são executados na hora, sem IA
+    let resposta = await executarComando(texto);
+    if (!resposta) {
+      resposta = await perguntarGemini(texto);
+      log(`resposta em ${((performance.now() - t0) / 1000).toFixed(1)}s:`, resposta);
+    }
+    if (!cancelado) await falar(resposta);
+  } catch (erro) {
+    log("erro:", erro);
+    aviso("Erro: " + erro.message);
+  }
+
+  ocupado = false;
+  setEstado(null);
+  renovarConversa();   // continua ouvindo sem precisar do nome
+}
+
+async function chamarAPI(corpo, limiteMs) {
+  const controle = new AbortController();
+  const timer = setTimeout(() => controle.abort(), limiteMs);
+  try {
+    const r = await fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": CFG.CHAVE_GEMINI },
+      body: JSON.stringify(corpo),
+      signal: controle.signal,
+    });
+    const dados = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(dados?.error?.message || "HTTP " + r.status);
+    return dados;
+  } catch (e) {
+    if (e.name === "AbortError") throw new Error("o Gemini demorou demais");
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// manda um texto pro Gemini, rápido; se o modelo rápido falhar, tenta o reserva
+async function gerarTexto(prompt, { buscarNoGoogle = false, limite = LIMITE_TEXTO_MS } = {}) {
+  const tentativas = [
+    { model: MODELO_RAPIDO, generation_config: { thinking_level: "minimal" } },
+    { model: MODELO_RAPIDO },
+    { model: MODELO_RESERVA, generation_config: { thinking_level: "minimal" } },
+  ];
+  let ultimoErro;
+  for (const t of tentativas) {
+    try {
+      const corpo = { ...t, input: [{ type: "user_input", content: [{ type: "text", text: prompt }] }] };
+      if (buscarNoGoogle) corpo.tools = [{ type: "google_search" }];
+      const texto = extrairTexto(await chamarAPI(corpo, limite));
+      if (texto) return texto;
+    } catch (e) {
+      log(`${t.model} falhou:`, e.message);
+      ultimoErro = e;
+    }
+  }
+  throw ultimoErro || new Error("o Gemini não respondeu");
+}
+
+async function perguntarGemini(texto) {
+  const conversa = memoria.historico.map((h) => `${h.quem}: ${h.texto}`).join("\n");
+  const fatos = memoria.fatos.map((f) => "- " + f).join("\n");
+
+  const prompt =
+`Você é a IA parceira do ${CFG.NOME_USUARIO}, tipo um amigo gênio que mora no computador dele.
+Jeito: brasileiro, descontraído, direto, esperto, com humor leve. Nada de formalidade, nunca chame ele de "senhor", nunca diga seu próprio nome.
+Sua resposta vai ser FALADA: curta (1 ou 2 frases na maioria das vezes), natural, sem listas, sem markdown, sem emoji.
+Agora é ${new Date().toLocaleString("pt-BR")}.
+
+O que você já sabe sobre o ${CFG.NOME_USUARIO}:
+${fatos || "(nada ainda)"}
+
+Conversa recente:
+${conversa || "(nenhuma)"}
+
+${CFG.NOME_USUARIO}: ${texto}
+
+Se ele contou algo importante e duradouro sobre ele (gostos, pessoas, projetos, planos), coloque no FINAL uma linha separada assim:
+LEMBRAR: <fato curto>
+Se não, não escreva essa linha.`;
+
+  let resposta = await gerarTexto(prompt);
+
+  // separa o que é pra lembrar do que é pra falar
+  const lembrar = resposta.match(/LEMBRAR:\s*(.+)/i);
+  if (lembrar) {
+    memoria.fatos.push(lembrar[1].trim());
+    log("aprendi:", lembrar[1].trim());
+  }
+  resposta = resposta.replace(/LEMBRAR:.*$/gim, "").trim();
+
+  memoria.historico.push({ quem: CFG.NOME_USUARIO, texto }, { quem: "Você", texto: resposta });
+  salvarMemoria();
+  return resposta;
+}
+
+// ---------- voz ----------
+// divide em frases e pede o áudio de todas ao mesmo tempo:
+// a primeira começa a tocar enquanto as outras ainda estão sendo geradas
+async function falar(texto) {
+  if (!texto) return;
+  setEstado("falando");
+  abaixarNoticia(true);
+  try {
+    const frases = dividirFrases(texto);
+    const audios = frases.map((f) => gerarAudio(f).catch(() => null));
+    for (let i = 0; i < frases.length; i++) {
+      if (cancelado) break;
+      const base64 = await audios[i];
+      if (cancelado) break;
+      if (base64) await tocarAudio(base64);
+      else await falarNavegador(frases[i]);
+    }
+  } finally {
+    abaixarNoticia(false);
+  }
+}
+
+function dividirFrases(texto) {
+  const partes = texto.match(/[^.!?]+[.!?]*/g) || [texto];
+  const frases = [];
+  for (const p of partes.map((s) => s.trim()).filter(Boolean)) {
+    // junta frases muito curtas pra não ficar picotado
+    if (frases.length && (frases[frases.length - 1].length < 40 || p.length < 15)) frases[frases.length - 1] += " " + p;
+    else frases.push(p);
+  }
+  return frases;
+}
+
+async function gerarAudio(texto) {
+  const dados = await chamarAPI({
+    model: MODELO_VOZ,
+    input: [{
+      type: "user_input",
+      content: [{
+        type: "text",
+        text: texto,
+        annotations: [{ type: "speech_metadata", style: "relaxed, friendly and confident, natural Brazilian conversational tone, slightly fast" }],
+      }],
+    }],
+    response_format: { type: "audio" },
+    generation_config: { speech_config: [{ voice: CFG.VOZ }] },
+  }, LIMITE_VOZ_MS);
+  const base64 = coletar(dados, "audio").map((c) => c.data).filter(Boolean).pop();
+  if (!base64) throw new Error("sem áudio");
+  return base64;
+}
+
+// ---------- leitura das respostas ----------
+function coletar(obj, tipo, achados = []) {
+  if (Array.isArray(obj)) obj.forEach((o) => coletar(o, tipo, achados));
+  else if (obj && typeof obj === "object") {
+    if (obj.type === tipo) achados.push(obj);
+    Object.values(obj).forEach((v) => coletar(v, tipo, achados));
+  }
+  return achados;
+}
+
+function extrairTexto(dados) {
+  const saidas = (dados?.steps || []).filter((s) => s.type === "model_output");
+  const textos = coletar(saidas.length ? saidas : dados, "text").map((c) => c.text).filter(Boolean);
+  return (textos.join(" ") || "").trim();
+}
+
+// ---------- áudio + núcleo reagindo à voz ----------
+function desbloquearAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === "suspended") audioCtx.resume();
+}
+
+// "bip" curtinho: sinal de que ele está ouvindo
+function bip() {
+  desbloquearAudio();
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.frequency.value = 880;
+  g.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.12, audioCtx.currentTime + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.18);
+  o.connect(g).connect(audioCtx.destination);
+  o.start();
+  o.stop(audioCtx.currentTime + 0.2);
+}
+
+async function tocarAudio(base64) {
+  desbloquearAudio();
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+
+  let buffer;
+  const ehWav = bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46;
+  if (ehWav) {
+    buffer = await audioCtx.decodeAudioData(bytes.buffer.slice(0));
+  } else {
+    const amostras = new Int16Array(bytes.buffer, 0, Math.floor(bytes.length / 2));
+    buffer = audioCtx.createBuffer(1, amostras.length, 24000);
+    const canal = buffer.getChannelData(0);
+    for (let i = 0; i < amostras.length; i++) canal[i] = amostras[i] / 32768;
+  }
+
+  const fonte = audioCtx.createBufferSource();
+  const analisador = audioCtx.createAnalyser();
+  analisador.fftSize = 256;
+  fonte.buffer = buffer;
+  fonte.connect(analisador);
+  analisador.connect(audioCtx.destination);
+  fonteAtual = fonte;
+
+  const onda = new Uint8Array(analisador.frequencyBinCount);
+  let animando = true;
+  (function animar() {
+    if (!animando) return;
+    analisador.getByteFrequencyData(onda);
+    const media = onda.reduce((a, b) => a + b, 0) / onda.length;
+    nucleo.style.setProperty("--nivel", Math.min(media / 90, 1).toFixed(3));
+    requestAnimationFrame(animar);
+  })();
+
+  await new Promise((resolver) => { fonte.onended = resolver; fonte.start(); });
+  animando = false;
+  fonteAtual = null;
+  nucleo.style.setProperty("--nivel", 0);
+}
+
+// voz reserva do navegador (se a do Gemini falhar)
+function falarNavegador(texto) {
+  return new Promise((resolver) => {
+    if (!("speechSynthesis" in window) || cancelado) return resolver();
+    const fala = new SpeechSynthesisUtterance(texto);
+    fala.lang = "pt-BR";
+    fala.rate = 1.1;
+    const vozes = speechSynthesis.getVoices().filter((v) => v.lang.startsWith("pt"));
+    fala.voice = vozes.find((v) => /male|masculin|daniel|ricardo/i.test(v.name)) || vozes[0] || null;
+
+    let animando = true;
+    (function pulsar() {
+      if (!animando) return;
+      nucleo.style.setProperty("--nivel", (0.3 + Math.random() * 0.5).toFixed(2));
+      setTimeout(pulsar, 90);
+    })();
+
+    fala.onend = fala.onerror = () => {
+      animando = false;
+      nucleo.style.setProperty("--nivel", 0);
+      resolver();
+    };
+    speechSynthesis.speak(fala);
+  });
+}
+
+document.addEventListener("click", desbloquearAudio, { once: true });
+document.addEventListener("keydown", desbloquearAudio, { once: true });
+
+// =============================================
+//  COMANDOS DE VOZ (executam na hora, sem IA)
+// =============================================
+async function executarComando(texto) {
+  const t = normalizar(texto);
+  const falaDeCamera = /camera|webcam/.test(t);
+  const falaDeNoticia = /noticia|jornal|manchete/.test(t);
+  const noticiasAbertas = document.body.classList.contains("noticias-abertas");
+
+  // memória
+  if (/(esquece|apaga|limpa).*(tudo|memoria)/.test(t)) {
+    memoria.historico = [];
+    memoria.fatos = [];
+    salvarMemoria();
+    return "Pronto, apaguei tudo. Começando do zero.";
+  }
+  if (/o que (voce )?(sabe|lembra) (sobre|de) mim/.test(t)) {
+    if (!memoria.fatos.length) return "Ainda não sei quase nada sobre você. Vai me contando.";
+    return "Sei que " + memoria.fatos.slice(-5).join(", ") + ".";
+  }
+
+  if (/(troca|muda|apaga).*(chave)/.test(t)) {
+    try { localStorage.removeItem("assistente_chave"); } catch (_) {}
+    setTimeout(() => location.reload(), 2500);
+    return "Beleza, vou pedir a chave de novo.";
+  }
+
+  // câmera
+  if (falaDeCamera && /(abr|lig|mostr|ativ)/.test(t)) {
+    return (await abrirCamera()) ? "Câmera aberta." : "Não consegui acessar a câmera.";
+  }
+  if (falaDeCamera && /(fech|deslig|tir|desativ)/.test(t)) {
+    fecharCamera();
+    return "Fechei a câmera.";
+  }
+
+  // notícias
+  if (/resum/.test(t)) {
+    if (!noticiasAbertas) abrirNoticias();
+    return await resumirNoticias();
+  }
+  if (falaDeNoticia && /(mostr|abr|quero|ver|bot|coloc|lig|atua)/.test(t)) {
+    abrirNoticias();
+    return "Bora, notícias na tela.";
+  }
+  if (noticiasAbertas && /(pass|proxim|troc|outro|mud)/.test(t)) {
+    return `Trocando pra ${proximoCanal()}.`;
+  }
+  if (falaDeNoticia && /(fech|deslig|tir|sai)/.test(t)) {
+    fecharNoticias();
+    return "Fechei as notícias.";
+  }
+
+  // voltar ao início
+  if (/(volt|inicio|tela inicial)/.test(t) &&
+      (document.body.classList.contains("camera-aberta") || noticiasAbertas)) {
+    fecharCamera();
+    fecharNoticias();
+    return "De volta pro início.";
+  }
+  return null;
+}
+
+// =============================================
+//  CÂMERA
+// =============================================
+const video = document.querySelector(".video-camera");
+let streamCamera = null;
+
+async function abrirCamera() {
+  fecharNoticias();
+  try {
+    if (!streamCamera) {
+      streamCamera = await navigator.mediaDevices.getUserMedia({ video: { width: 1920, height: 1080 }, audio: false });
+      video.srcObject = streamCamera;
+    }
+    document.body.classList.add("camera-aberta");
+    marcarBotao("camera");
+    return true;
+  } catch (e) {
+    log("erro da câmera:", e);
+    aviso("Câmera bloqueada ou não encontrada.");
+    return false;
+  }
+}
+
+function fecharCamera() {
+  if (!document.body.classList.contains("camera-aberta")) return;
+  document.body.classList.remove("camera-aberta");
+  marcarBotao("inicio");
+  if (streamCamera) {
+    const s = streamCamera;
+    streamCamera = null;
+    setTimeout(() => { s.getTracks().forEach((faixa) => faixa.stop()); video.srcObject = null; }, 600);
+  }
+}
+
+// =============================================
+//  BARRA DE BOTÕES
+// =============================================
+function marcarBotao(nome) {
+  document.querySelectorAll(".dock-btn").forEach((b) => b.classList.toggle("ativo", b.dataset.tela === nome));
+}
+
+document.querySelectorAll(".dock-btn").forEach((botao) => {
+  botao.addEventListener("click", () => {
+    desbloquearAudio();
+    const tela = botao.dataset.tela;
+    if (tela === "camera") {
+      document.body.classList.contains("camera-aberta") ? fecharCamera() : abrirCamera();
+    } else if (tela === "tela") {
+      document.body.classList.contains("noticias-abertas") ? fecharNoticias() : abrirNoticias();
+    } else if (tela === "inicio") {
+      fecharCamera();
+      fecharNoticias();
+    }
+  });
+});
+
+// =============================================
+//  TELA DE NOTÍCIAS
+// =============================================
+const CANAIS = [
+  { nome: "CNN Brasil",      id: "UCvdwhh_fDyWccR42-rReZLw" },
+  { nome: "Jovem Pan News",  id: "UCP391YRAjSOdM_bwievgaZA" },
+  { nome: "SBT News",        id: "UC376n347Ob5Lwzq2WGzF1AA" },
+  { nome: "Record News",     id: "UCuiLR4p6wQ3xLEm15pEn1Xw" },
+  { nome: "Band Jornalismo", id: "UCoa-D_VfMkFrCYodrOC9-mA" },
+  { nome: "UOL",             id: "UCVFbXI6Gu8U2f9Gjtxw4A-Q" },
+];
+const VOLUME_NORMAL = 70;
+const VOLUME_BAIXO = 10;
+
+let canalAtual = 0;
+let playerYT = null;
+let manchetes = [];
+let manchetesBuscadas = false;
+let apiYouTube = null;
+
+function abrirNoticias() {
+  fecharCamera();
+  if (document.body.classList.contains("noticias-abertas")) return;
+  document.body.classList.add("noticias-abertas");
+  marcarBotao("tela");
+  tocarCanal(canalAtual);
+  carregarCotacoes();
+  if (!manchetesBuscadas) buscarManchetes();
+}
+
+function fecharNoticias() {
+  if (!document.body.classList.contains("noticias-abertas")) return;
+  document.body.classList.remove("noticias-abertas");
+  marcarBotao("inicio");
+  setTimeout(() => {
+    document.querySelector(".player").innerHTML = "";
+    playerYT = null;
+  }, 600);
+}
+
+function carregarApiYouTube() {
+  if (apiYouTube) return apiYouTube;
+  apiYouTube = new Promise((resolver) => {
+    window.onYouTubeIframeAPIReady = resolver;
+    const s = document.createElement("script");
+    s.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(s);
+  });
+  return apiYouTube;
+}
+
+async function tocarCanal(indice) {
+  const canal = CANAIS[indice];
+  document.querySelector(".canal-nome").textContent = canal.nome;
+  const player = document.querySelector(".player");
+  player.innerHTML = "";
+
+  // o YouTube só toca quando a página está num endereço http (localhost)
+  if (location.protocol === "file:") {
+    const msg = document.createElement("p");
+    msg.className = "player-aviso";
+    msg.textContent = "O YouTube só funciona abrindo pelo localhost.";
+    player.appendChild(msg);
+    return;
+  }
+
+  const iframe = document.createElement("iframe");
+  iframe.src = `https://www.youtube.com/embed/live_stream?channel=${canal.id}&autoplay=1&enablejsapi=1&rel=0&playsinline=1&origin=${encodeURIComponent(location.origin)}`;
+  iframe.allow = "autoplay; encrypted-media; picture-in-picture";
+  iframe.referrerPolicy = "strict-origin-when-cross-origin";
+  iframe.title = canal.nome + " ao vivo";
+  player.appendChild(iframe);
+
+  try {
+    await carregarApiYouTube();
+    playerYT = new YT.Player(iframe, {
+      events: { onReady: (e) => { e.target.setVolume(VOLUME_NORMAL); e.target.playVideo(); } },
+    });
+  } catch (e) {
+    log("API do YouTube falhou:", e);
+  }
+}
+
+function proximoCanal() {
+  canalAtual = (canalAtual + 1) % CANAIS.length;
+  tocarCanal(canalAtual);
+  return CANAIS[canalAtual].nome;
+}
+
+function abaixarNoticia(abaixar) {
+  if (!playerYT?.setVolume) return;
+  try { playerYT.setVolume(abaixar ? VOLUME_BAIXO : VOLUME_NORMAL); } catch (_) {}
+}
+
+// manchetes reais de hoje, buscadas no Google pelo Gemini
+async function buscarManchetes() {
+  manchetesBuscadas = true;
+  const lista = document.querySelector(".lista-manchetes");
+  lista.innerHTML = '<li class="vazio">Buscando notícias...</li>';
+
+  const prompt =
+`Pesquise no Google as 6 notícias mais importantes do Brasil e do mundo de hoje (${new Date().toLocaleDateString("pt-BR")}).
+Responda só com 6 linhas, uma por notícia, neste formato exato (sem numeração, sem nada antes ou depois):
+manchete curta em português | nome do veículo`;
+
+  try {
+    const texto = await gerarTexto(prompt, { buscarNoGoogle: true, limite: 30000 });
+    manchetes = texto.split("\n")
+      .map((linha) => linha.replace(/^[\s\-*•\d.)]+/, "").split("|"))
+      .filter((p) => p[0] && p[0].trim().length > 10)
+      .map((p) => ({ titulo: p[0].trim(), fonte: (p[1] || "").trim() }))
+      .slice(0, 6);
+  } catch (e) {
+    log("manchetes falharam:", e.message);
+  }
+
+  if (!manchetes.length) {
+    manchetesBuscadas = false;
+    lista.innerHTML = '<li class="vazio">Não consegui buscar as manchetes agora.</li>';
+    return;
+  }
+
+  lista.innerHTML = "";
+  manchetes.forEach((m) => {
+    const li = document.createElement("li");
+    const titulo = document.createElement("span");
+    titulo.textContent = m.titulo;
+    const fonte = document.createElement("span");
+    fonte.className = "fonte";
+    fonte.textContent = m.fonte ? "· " + m.fonte : "";
+    li.append(titulo, fonte);
+    lista.appendChild(li);
+  });
+}
+
+async function resumirNoticias() {
+  if (!manchetes.length) await buscarManchetes();
+  if (!manchetes.length) return "Não consegui pegar as notícias agora.";
+
+  const prompt =
+`Resuma em no máximo 3 frases faladas, num tom descontraído e direto, estas manchetes de hoje pro ${CFG.NOME_USUARIO}.
+Sem listas, sem markdown, sem emoji, sem "senhor".
+${manchetes.map((m) => "- " + m.titulo).join("\n")}`;
+
+  try {
+    const resumo = await gerarTexto(prompt);
+    escreverDevagar(document.querySelector(".texto-resumo"), resumo);
+    return resumo;
+  } catch (e) {
+    return "Não consegui fazer o resumo agora.";
+  }
+}
+
+function escreverDevagar(elemento, texto) {
+  clearInterval(escreverDevagar.t);
+  elemento.textContent = "";
+  let i = 0;
+  escreverDevagar.t = setInterval(() => {
+    elemento.textContent = texto.slice(0, ++i);
+    if (i >= texto.length) clearInterval(escreverDevagar.t);
+  }, 18);
+}
+
+async function carregarCotacoes() {
+  const ticker = document.querySelector(".ticker");
+  try {
+    const r = await fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL,GBP-BRL,BTC-BRL");
+    const dados = await r.json();
+    const nomes = { USDBRL: "DÓLAR", EURBRL: "EURO", GBPBRL: "LIBRA", BTCBRL: "BITCOIN" };
+    ticker.innerHTML = "";
+    Object.entries(nomes).forEach(([chave, nome]) => {
+      const c = dados[chave];
+      if (!c) return;
+      const pct = parseFloat(c.pctChange);
+      const valor = parseFloat(c.bid).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+      const item = document.createElement("span");
+      item.className = "ticker-item";
+      item.innerHTML = `${nome}<b>${valor}</b><span class="${pct >= 0 ? "sobe" : "desce"}">${pct >= 0 ? "▲" : "▼"} ${Math.abs(pct).toFixed(2)}%</span>`;
+      ticker.appendChild(item);
+    });
+  } catch (e) {
+    log("cotações falharam:", e.message);
+    ticker.innerHTML = '<span class="ticker-item">Cotações indisponíveis</span>';
+  }
+
+  try {
+    const r = await fetch("https://economia.awesomeapi.com.br/json/daily/USD-BRL/30");
+    const dias = (await r.json()).reverse();
+    desenharGrafico(dias.map((d) => parseFloat(d.bid)));
+  } catch (e) {
+    log("gráfico falhou:", e.message);
+  }
+}
+
+function desenharGrafico(valores) {
+  if (!valores.length) return;
+  const svg = document.querySelector(".svg-grafico");
+  const L = 400, A = 150;
+  const min = Math.min(...valores), max = Math.max(...valores);
+  const pontos = valores.map((v, i) => [
+    (i / (valores.length - 1)) * L,
+    A - 10 - ((v - min) / (max - min || 1)) * (A - 30),
+  ]);
+  const linha = pontos.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
+
+  svg.innerHTML = `
+    <defs>
+      <linearGradient id="degrade-grafico" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#4aa8ff" stop-opacity="0.45"/>
+        <stop offset="100%" stop-color="#4aa8ff" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <path class="area" d="${linha} L ${L} ${A} L 0 ${A} Z"/>
+    <path class="linha" d="${linha}"/>`;
+
+  document.querySelector(".valor-grafico").textContent =
+    valores[valores.length - 1].toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+</script>
+</body>
+</html>
