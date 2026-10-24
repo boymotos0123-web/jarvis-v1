@@ -997,7 +997,7 @@ const MODELO_RAPIDO = "gemini-3.5-flash-lite";
 const MODELO_RESERVA = "gemini-3.6-flash";
 const MODELO_VOZ = "gemini-3.8-flash-lite-tts";
 const LIMITE_TEXTO_MS = 12000;
-const LIMITE_VOZ_MS = 15000;
+const LIMITE_VOZ_MS = 20000;
 const JANELA_CONVERSA_MS = 25000;   // depois de chamar o nome, fica 25s ouvindo sem precisar repetir
 
 const nucleo  = document.querySelector(".nucleo");
@@ -1063,7 +1063,12 @@ function pedirChave() {
     const chave = campo.value.trim();
     if (chave.length < 20) { campo.setCustomValidity("Essa chave parece incompleta."); campo.reportValidity(); return; }
     CFG.CHAVE_GEMINI = chave;
-    try { localStorage.setItem("assistente_chave", chave); } catch (_) {}
+    let salvou = false;
+    try {
+      localStorage.setItem("assistente_chave", chave);
+      salvou = localStorage.getItem("assistente_chave") === chave;
+    } catch (_) {}
+    if (!salvou) aviso("O navegador não deixou salvar a chave (aba anônima?). Ela vai valer só até fechar.");
     campo.value = "";
     tela.classList.remove("visivel");
     desbloquearAudio();
@@ -1237,11 +1242,11 @@ async function processar(texto) {
   renovarConversa();   // continua ouvindo sem precisar do nome
 }
 
-async function chamarAPI(corpo, limiteMs) {
+async function chamarAPI(corpo, limiteMs, url = API) {
   const controle = new AbortController();
   const timer = setTimeout(() => controle.abort(), limiteMs);
   try {
-    const r = await fetch(API, {
+    const r = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": CFG.CHAVE_GEMINI },
       body: JSON.stringify(corpo),
@@ -1318,6 +1323,16 @@ Se não, não escreva essa linha.`;
 }
 
 // ---------- voz ----------
+// tenta vários jeitos de gerar a voz do Gemini; o que funcionar fica guardado
+const JEITOS_DE_VOZ = [
+  { nome: "interactions lite", fn: (t) => vozInteractions(t, "gemini-3.8-flash-lite-tts") },
+  { nome: "interactions",      fn: (t) => vozInteractions(t, "gemini-3.8-flash-tts") },
+  { nome: "generateContent",   fn: (t) => vozGenerateContent(t, "gemini-3.8-flash-tts") },
+  { nome: "generateContent 2.5", fn: (t) => vozGenerateContent(t, "gemini-2.5-flash-preview-tts") },
+];
+let jeitoQueFunciona = null;   // descoberto na primeira fala
+let vozGeminiQuebrada = false; // se todos falharem, para de tentar nesta sessão
+
 // divide em frases e pede o áudio de todas ao mesmo tempo:
 // a primeira começa a tocar enquanto as outras ainda estão sendo geradas
 async function falar(texto) {
@@ -1325,7 +1340,14 @@ async function falar(texto) {
   setEstado("falando");
   abaixarNoticia(true);
   try {
+    // na primeira vez, descobre qual jeito funciona com a primeira frase
     const frases = dividirFrases(texto);
+    if (!jeitoQueFunciona && !vozGeminiQuebrada) {
+      const primeiro = await descobrirJeito(frases[0]);
+      if (primeiro && !cancelado) await tocarAudio(primeiro);
+      else if (!cancelado) await falarNavegador(frases[0]);
+      frases.shift();
+    }
     const audios = frases.map((f) => gerarAudio(f).catch(() => null));
     for (let i = 0; i < frases.length; i++) {
       if (cancelado) break;
@@ -1339,6 +1361,29 @@ async function falar(texto) {
   }
 }
 
+async function descobrirJeito(frase) {
+  const erros = [];
+  for (const jeito of JEITOS_DE_VOZ) {
+    try {
+      const base64 = await jeito.fn(frase);
+      jeitoQueFunciona = jeito;
+      log("voz do Gemini funcionando via", jeito.nome);
+      return base64;
+    } catch (e) {
+      erros.push(`${jeito.nome}: ${e.message}`);
+      log("voz falhou", jeito.nome, e.message);
+    }
+  }
+  vozGeminiQuebrada = true;
+  aviso("Voz do Gemini falhou → " + erros[0]);
+  return null;
+}
+
+async function gerarAudio(texto) {
+  if (!jeitoQueFunciona) throw new Error("sem voz do Gemini");
+  return jeitoQueFunciona.fn(texto);
+}
+
 function dividirFrases(texto) {
   const partes = texto.match(/[^.!?]+[.!?]*/g) || [texto];
   const frases = [];
@@ -1350,22 +1395,37 @@ function dividirFrases(texto) {
   return frases;
 }
 
-async function gerarAudio(texto) {
+// jeito novo (Interactions API)
+async function vozInteractions(texto, modelo) {
   const dados = await chamarAPI({
-    model: MODELO_VOZ,
+    model: modelo,
     input: [{
       type: "user_input",
       content: [{
         type: "text",
         text: texto,
-        annotations: [{ type: "speech_metadata", style: "relaxed, friendly and confident, natural Brazilian conversational tone, slightly fast" }],
+        annotations: [{ type: "speech_metadata", style: "relaxed, friendly and confident, natural Brazilian conversational tone" }],
       }],
     }],
     response_format: { type: "audio" },
     generation_config: { speech_config: [{ voice: CFG.VOZ }] },
   }, LIMITE_VOZ_MS);
   const base64 = coletar(dados, "audio").map((c) => c.data).filter(Boolean).pop();
-  if (!base64) throw new Error("sem áudio");
+  if (!base64) throw new Error("resposta sem áudio");
+  return base64;
+}
+
+// jeito clássico (generateContent)
+async function vozGenerateContent(texto, modelo) {
+  const dados = await chamarAPI({
+    contents: [{ parts: [{ text: "Say in a relaxed, friendly Brazilian tone: " + texto }] }],
+    generationConfig: {
+      responseModalities: ["AUDIO"],
+      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: CFG.VOZ } } },
+    },
+  }, LIMITE_VOZ_MS, `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`);
+  const base64 = dados?.candidates?.[0]?.content?.parts?.find((p) => p.inlineData)?.inlineData?.data;
+  if (!base64) throw new Error("resposta sem áudio");
   return base64;
 }
 
