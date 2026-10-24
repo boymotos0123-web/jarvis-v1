@@ -979,7 +979,7 @@ body {
       <h2 id="titulo-chave">Primeira configuração</h2>
       <p>Cole sua chave do Gemini. Ela fica guardada só neste navegador e não aparece de novo.</p>
       <label for="campo-chave">Chave da API</label>
-      <input id="campo-chave" type="password" autocomplete="off" spellcheck="false" placeholder="AIza..." required>
+      <input id="campo-chave" type="password" autocomplete="off" spellcheck="false" placeholder="Cole a chave aqui" required>
       <button type="submit">Ativar</button>
     </form>
   </div>
@@ -1204,6 +1204,14 @@ function distancia(a, b) {
 nucleo.addEventListener("click", ativarManual);
 document.addEventListener("keydown", (e) => {
   if (e.code === "Space" && e.target === document.body) { e.preventDefault(); ativarManual(); }
+});
+
+// atalho Shift + K: apaga a chave salva e pede outra
+document.addEventListener("keydown", (e) => {
+  if (e.shiftKey && e.code === "KeyK") {
+    try { localStorage.removeItem("assistente_chave"); } catch (_) {}
+    location.reload();
+  }
 });
 
 function ativarManual() {
